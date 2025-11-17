@@ -1,4 +1,5 @@
 title: My CTF Writeups
-description: A collection of CTF solutions and walkthroughs
-theme: minimal-mistakes-jekyll
-markdown: kramdown
+description: Walkthroughs and solutions for CTF challenges
+remote_theme: mmistakes/minimal-mistakes
+plugins:
+  - jekyll-remote-theme
