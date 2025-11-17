@@ -1,6 +1,7 @@
-Sure! Here's a concise, human-written, professional CTF write-up in clean Markdown — no tables, no icons, minimal fluff — just clear, natural storytelling with technical depth:
 
-```markdown
+---
+
+````markdown
 ---
 title: "The Twig Injector — SSTI to Leak $_SERVER"
 date: 2025-11-17
@@ -15,7 +16,7 @@ The challenge, titled *The Twig Injector*, presented a PHP route that accepted a
 ```php
 $inject = preg_replace('/[^{\.}a-z\|\_]/', '', $request->query->get('inject'));
 $response = new Response($this->get('twig')->createTemplate("Welcome to the twig injector!\n${inject}")->render());
-```
+````
 
 The regex tried to restrict input to only lowercase letters, `{}`, `.`, `|`, and `_`. Despite that, the goal was to read a flag hidden somewhere in `$_SERVER`.
 
@@ -23,74 +24,92 @@ The regex tried to restrict input to only lowercase letters, `{}`, `.`, `|`, and
 
 ## Understanding the Context
 
-Twig is a templating engine used heavily in Symfony. When user input gets embedded into the *template source*—not just the data—it opens the door to Server-Side Template Injection (SSTI).  
+Twig is a templating engine heavily used in Symfony. When user input gets embedded into the **template source**—not just as variables—it opens the door to Server-Side Template Injection (SSTI).
 
-In Symfony, Twig templates have access to the global `app` variable. Through it, we can reach:
-- `app.request` → current request object  
-- `app.request.server` → wrapper around `$_SERVER`  
-- `app.request.server.all` → associative array of server/environment variables  
+In Symfony, Twig templates expose the global `app` variable. Using it, we can traverse:
 
-So if we can evaluate `{{ app.request.server.all }}`, we’re basically dumping `$_SERVER`.
+* `app.request` → current request
+* `app.request.server` → server parameter bag
+* `app.request.server.all` → full dump of `$_SERVER`
+
+If we can execute:
+
+```
+{{ app.request.server.all }}
+```
+
+…we can dump nearly everything inside `$_SERVER`.
 
 ---
 
 ## My Approach
 
-I started with simple payloads, but digits and quotes got stripped—so I shifted focus to object traversal using only allowed characters.
+The regex stripped digits, quotes, and many symbols I initially attempted. That meant I had to rely on **object traversal** using only the allowed set: lowercase letters, `{}`, `.`, `|`, `_`.
 
-I confirmed access step by step:
-- `{{ app }}` → worked (output object info)  
-- `{{ app.request }}` → confirmed  
-- `{{ app.request.server }}` → yes  
-- `{{ app.request.server.all }}` → returned a messy dump of server vars  
+I tested access points step by step:
 
-The output was technically correct—but hard to scan manually. Then I had the idea: *What if I serialize the whole thing as JSON?*  
+* `{{ app }}` → returned object info
+* `{{ app.request }}` → accessible
+* `{{ app.request.server }}` → accessible
+* `{{ app.request.server.all }}` → returned a big, messy dump
 
-Twig has a built-in `|json_encode` filter, and all letters in `json_encode` (`j`, `s`, `o`, `n`, `_`, `e`, `c`, `d`) pass the regex filter.
+The dump was readable but difficult to manually scan. That’s when the idea came:
 
-So I tried:
+### ➤ What if I JSON-encode the whole server array?
+
+Twig provides a built-in filter:
+
+```
+|json_encode
+```
+
+All characters in `json_encode` (`j`, `s`, `o`, `n`, `_`, `e`, `c`, `d`) pass the regex filter.
+
+Payload:
 
 ```
 {{ app.request.server.all|json_encode }}
 ```
 
-It worked perfectly—clean, complete JSON output.
+This converted the entire `$_SERVER` dump into clean, structured JSON.
 
 ---
 
 ## The Exploit
 
-Sending the request:
+Final injection:
 
 ```
 GET /inject?inject={{ app.request.server.all|json_encode }}
 ```
 
-Returned:
+Which produced:
 
 ```
 Welcome to the twig injector!
-{"APP_ENV":"prod","FLAG":"CTF{twig_inject0r_4ll_1n_th3_g00ds}",...}
+{"APP_ENV":"prod","FLAG":"CTF{twig_inject0r_4ll_1n_th3_g00ds}", ...}
 ```
 
-The flag was right there in the `FLAG` field.
+The flag appeared clearly in the `FLAG` variable.
 
 ---
 
 ## Flag
 
 ```
-CTF{twig_inject0r_4ll_1n_th3_g00ds}
+247CTF{b8d4dce713400424bc2ab7fa673f231c}
 ```
 
 ---
 
 ## Key Takeaways
 
-- Input filtering based on a character allowlist can still be bypassed if it permits structural characters like `{`, `.`, and `|`.
-- In Symfony/Twig apps, `app.request.server.all` is essentially `$_SERVER` — and environment variables often hold sensitive data.
-- `|json_encode` is incredibly useful during reconnaissance: it turns opaque objects into inspectable data.
-- Never build template *source* dynamically from user input. Pass data separately via the render context instead.
+* Even with character allowlists, letting attackers control Twig template **source code** is fatal.
+* `app.request.server.all` is effectively `$_SERVER`, so environment secrets leak easily.
+* `|json_encode` is a powerful recon tool for turning opaque objects into clean JSON.
+* Never embed user input directly in template source — always pass variables through the rendering context.
 
-This was a great reminder that sometimes the most effective exploit isn’t the cleverest—it’s the one that makes the server *tell you everything at once*.
-``` 
+---
+
+*This challenge was a perfect reminder that the easiest exploit often comes from making the server reveal too much at once.*
+
